@@ -1,0 +1,22 @@
+Progress Update & Next Steps - Speech Tech App
+==============================================
+
+STATUS SAAT INI:
+1. FRONTEND: 
+   - Modifikasi pada `Dashboard.jsx` telah dilakukan untuk me-reencode semua audio rekaman atau unggahan menjadi format `WAV` standar (PCM 16-bit) sebelum dikirim ke backend. Ini bertujuan agar backend tidak perlu berurusan dengan format `.m4a` / `.mp4` / `.webm` yang sulit dibaca di Windows.
+
+2. BACKEND:
+   - Terjadi error `scipy.io.wavfile failed: File format b'\x00\x00\x00\x1c' not understood` jika file yang masuk masih berformat M4A (misalnya karena cache browser belum di-refresh, atau pengujian API secara manual).
+   - Telah dicoba menginstal `ffmpeg` via Conda dan `imageio-ffmpeg` via pip agar backend `librosa` / `audioread` kebal terhadap file M4A. Namun `audioread` di Windows masih kesulitan mendeteksi *path* binary ffmpeg secara dinamis.
+
+LANGKAH SELANJUTNYA (YANG AKAN DILAKUKAN):
+1. Mengubah fallback backend untuk menggunakan `pydub`:
+   Karena `audioread` sulit dikonfigurasi secara manual untuk menemukan ffmpeg, kita akan mengabaikan `audioread` dan menggunakan `pydub`. 
+   Kita bisa mengatur letak ffmpeg secara eksplisit: `pydub.AudioSegment.converter = imageio_ffmpeg.get_ffmpeg_exe()`.
+   Lalu, pydub akan membaca M4A dari memori/temp file dan mengekspornya sebagai WAV, sehingga `librosa.load` atau `scipy` pasti bisa membacanya 100% sukses.
+
+2. Menyelesaikan masalah pemotongan kata (Segmentation):
+   Setelah backend bisa menerima file dengan baik, kita akan fokus mencari tahu kenapa hasil pembacaan F5-TTS / Whisper hanya mengeluarkan 3-5 kata dari total 13 kata (misal persamaan matematika panjang). Kemungkinan *Adaptive Presentation Alignment* (DTW) atau Whisper VAD memotong suara terlalu agresif saat jeda suara terlalu panjang. 
+   Solusinya: Mengatur ulang sensitivitas VAD (Voice Activity Detection) atau parameter `top_db` di `librosa.effects.split` pada `speech_engine.py`.
+
+Silakan jalan, hati-hati di jalan! Jika sudah siap melanjutkan, beri tahu saya dan kita selesaikan eksekusi langkah di atas.

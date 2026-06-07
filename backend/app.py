@@ -28,6 +28,7 @@ validator = ArithmeticValidator()
 # ------------------------------------------------------------------
 class EquationInput(BaseModel):
     equation: str = Field(..., min_length=1, description="Arithmetic equation string")
+    language: str | None = Field(default="es", description="Language/model choice for TTS")
 
 
 class ValidationOutput(BaseModel):
@@ -57,15 +58,15 @@ def validate_equation_endpoint(data: EquationInput):
     result = validator.validate(data.equation)
     return result.to_dict()
 
-from fastapi import File, UploadFile
+from fastapi import File, UploadFile, Form
 import speech_engine
 
 @app.post("/api/v2t")
-async def v2t_endpoint(file: UploadFile = File(...)):
+async def v2t_endpoint(file: UploadFile = File(...), top_db: int = Form(45)):
     audio_bytes = await file.read()
     
     try:
-        pipeline_data = speech_engine.process_v2t(audio_bytes)
+        pipeline_data = speech_engine.process_v2t(audio_bytes, top_db=top_db)
     except ValueError as e:
         return {
             "validation": {"valid": False, "errors": [str(e)]},
@@ -88,7 +89,7 @@ def t2v_endpoint(data: EquationInput):
             "pipeline": None
         }
         
-    pipeline_data = speech_engine.process_t2v(data.equation)
+    pipeline_data = speech_engine.process_t2v(data.equation, language=data.language)
     return {
         "validation": validation_res.to_dict(),
         "pipeline": pipeline_data

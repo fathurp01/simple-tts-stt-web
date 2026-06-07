@@ -1,0 +1,76 @@
+Materi Pengerjaan TUGAS AKHIR PTU  ( KELOMPOK)
+NOTED :Keluaran Boleh sama dengan  yang ETS2   atau yang lain asal suara sendiri
+
+Pengembangan aplikasi Speech-to-Text (STT) menggunakan suara Anda sendiri (kustom) ada beberapa konsep dasar dan penyesuaian yang perlu dipahami agar sistem dapat bekerja dengan baik.
+Berikut adalah penjelasan konsep dan langkah-langkah pengembangannya.
+1. Pengumpulan dan Anotasi Data (Dataset Creation)
+Langkah pertama adalah merekam suara Anda dan memberikan label (teks) yang sesuai pada setiap rekaman.
+•	Perekaman Terisolasi: Anda merekam setiap huruf (A-Z), angka (0-9), dan simbol (+, -, x, :) secara terpisah.
+•	Perekaman Frasa (Penting): Karena Anda menginginkan output seperti "1+1=2" atau "123 sayang semuanya", merekam huruf satu per satu tidak cukup untuk menghasilkan kata utuh secara natural. Jika model hanya dilatih dengan huruf 's', 'a', 'y', 'a', 'n', 'g', saat Anda mengucapkan kata "sayang", model mungkin kebingungan atau menuliskannya dengan spasi ("s a y a n g").
+•	Solusi: Anda juga harus merekam frasa utuh yang ingin dikenali (seperti "satu tambah satu sama dengan dua" atau "satu dua tiga sayang semuanya") agar model mengenali pola akustik dari kata-kata yang tersambung.
+2. Pra-pemrosesan Audio (Preprocessing)
+Komputer tidak memahami suara dalam bentuk gelombang audio mentah (file .wav atau .mp3). Gelombang suara ini harus diubah menjadi representasi visual/matematis.
+•	Ekstraksi Fitur (MFCC/Mel-Spectrogram): Audio akan dipecah menjadi bingkai-bingkai kecil (biasanya 20-30 milidetik) dan diubah menjadi spectrogram. Ini adalah gambar representasi frekuensi suara dari waktu ke waktu.
+•	Normalisasi: Menyamakan volume rekaman dan menghilangkan noise (suara bising latar belakang).
+3. Pemodelan Akustik (Acoustic Model)
+Ini adalah "otak" pertama dari aplikasi STT. Model akustik bertugas memetakan fitur suara (spectrogram) ke dalam unit fonem (bunyi bahasa) atau karakter langsung.
+•	Cara kerja: Saat Anda mengucapkan "1", model akustik menganalisis frekuensi suara tersebut dan menebak bahwa suara itu merepresentasikan karakter 1 atau kata satu.
+•	Teknologi: Biasanya menggunakan arsitektur Deep Learning seperti RNN (Recurrent Neural Networks), CNN, atau yang terbaru berbasis Transformer (seperti model Whisper atau Wav2Vec2).
+4. Pemodelan Bahasa (Language Model)
+Ini adalah "otak" kedua. Model bahasa memberikan konteks pada tebakan dari model akustik.
+•	Fungsi Utama: Jika model akustik ragu apakah Anda bilang "sayang" atau "bayang", model bahasa akan melihat kata sebelumnya (misal: "123 ..."). Secara probabilitas, "123 sayang semuanya" (lirik lagu anak) lebih masuk akal daripada "123 bayang semuanya".
+•	Konversi Simbol: Model bahasa juga yang bertugas mengubah pengucapan "tambah" menjadi simbol +, atau "sama dengan" menjadi =.
+5. Proses Pelatihan (Fine-Tuning)
+Melatih model STT dari nol (scratch) membutuhkan ribuan jam data suara. Karena Anda menggunakan suara sendiri yang jumlahnya terbatas, pendekatan terbaik adalah Transfer Learning atau Fine-Tuning.
+•	Anda mengambil model yang sudah cerdas bahasa Indonesia (misalnya OpenAI Whisper atau Wav2Vec2 Indonesian).
+•	Anda melatih ulang sebagian kecil otak model tersebut menggunakan rekaman dataset suara Anda, huruf, angka, dan frasa-frasa khusus yang Anda inginkan. Ini membuat model beradaptasi dengan dialek, nada, dan karakteristik vokal Anda secara spesifik.
+6. Proses Inferensi (Menghasilkan Output)
+Saat aplikasi sudah jadi dan Anda berbicara melalui mikrofon:
+1.	Suara Anda direkam dan diubah menjadi spectrogram.
+2.	Model akustik memprediksi karakter/kata.
+3.	Model bahasa merapikan konteks (mengubah kata "tambah" menjadi +, merangkai "sayang semuanya").
+4.	Layar menampilkan output: 1+1=2 atau 123 sayang semuanya.
+Catatan Realitas: Jika Anda benar-benar hanya melatih model dengan rekaman huruf A-Z dan angka 0-9 secara terisolasi tanpa rekaman kata utuh, model tidak akan bisa mengenali frasa "sayang semuanya" secara natural, kecuali Anda mengejanya secara manual dengan jeda: "S... A... Y... A... N... G".
+Apakah Anda berencana untuk membangun model ini dari awal menggunakan framework tertentu seperti TensorFlow/PyTorch, atau Anda tertarik menggunakan model siap pakai yang bisa di-fine-tune seperti HuggingFace Wav2Vec2?
+
+
+
+
+Proyek  Membangun sistem Speech-to-Text (STT) dan Text-to-Speech (TTS) kustom dengan suara sendiri Menggunakan  HuggingFace Wav2Vec2 dan VITS atau SpeechT5
+Sebelum kita masuk ke langkah-langkahnya, ada dua catatan penting (dan sedikit pelurusan konsep) agar target keluaran "1+1=2 1+2=3 3+1=4 123 sayang semuanya" bisa tercapai dengan baik:
+1.	Fungsi Model: HuggingFace Wav2Vec2 adalah model yang luar biasa, tetapi ia khusus untuk STT (mengubah suara menjadi teks). Untuk TTS (mengubah teks menjadi suara dengan suara kamu), kita membutuhkan model yang berbeda, seperti VITS atau SpeechT5. Kita akan menggunakan keduanya di aplikasi ini.
+2.	Strategi Dataset: Jika kamu hanya merekam huruf tunggal (a, b, c) dan angka tunggal (1, 2, 3), model akan terdengar seperti robot yang mengeja patah-patah, dan STT akan kesulitan memahami kata utuh seperti "sayang". Selain itu, model AI memproses kata, bukan simbol matematis. Simbol + harus ditranskripsi menjadi "tambah", dan = menjadi "sama dengan". Sebaiknya, rekamlah suara dalam bentuk kalimat utuh yang mengandung angka, huruf, dan kata-kata target.
+Mari kita bedah proses pengembangannya langkah demi langkah! 🚀
+Langkah 1: Persiapan Dataset (Data Collection) 🎙️
+Ini adalah fondasi dari aplikasimu. Kualitas suaramu menentukan hasil akhir.
+•	Perekaman Suara: Gunakan mikrofon yang jernih di ruangan yang sunyi. Rekam suaramu dengan format .wav (Mono, sample rate 16kHz atau 22kHz).
+•	Pembuatan Transkripsi: Buat file CSV atau JSON yang memasangkan file audio dengan teksnya.
+o	Hindari: audio1.wav -> "1+1=2"
+o	Gunakan: audio1.wav -> "satu tambah satu sama dengan dua"
+•	Cakupan Dataset: Selain merekam persamaan matematika, rekam juga frasa target seperti "satu dua tiga sayang semuanya" dan berbagai kalimat bahasa Indonesia lainnya agar model mengenali fonem (bunyi suku kata) dengan natural.
+Langkah 2: Pengembangan STT dengan Wav2Vec2 👂
+Tujuan di fase ini adalah melatih Wav2Vec2 agar bisa mengenali gaya bicaramu (aksen) dengan akurasi tinggi.
+1.	Pilih Base Model: Jangan melatih dari nol. Gunakan model pre-trained yang sudah mengerti bahasa Indonesia di HuggingFace, misalnya indonesian-nlp/wav2vec2-large-xlsr-indonesian.
+2.	Preprocessing Data: * Ubah semua teks transkripsimu menjadi huruf kecil (lowercase) dan hapus tanda baca.
+o	Ubah file audio kamu menjadi array array numerik pada sample rate 16kHz menggunakan library librosa atau datasets dari HuggingFace.
+3.	Fine-Tuning: * Gunakan Trainer API dari HuggingFace.
+o	Kamu akan melatih komponen language modeling (CTC loss) pada Wav2Vec2 agar terbiasa dengan kosakatamu (seperti "tambah", "kurang", "sayang").
+4.	Post-Processing: Setelah model STT mengeluarkan teks (misal: "satu tambah satu sama dengan dua"), kamu bisa membuat fungsi Python sederhana menggunakan Regular Expression (Regex) atau dictionary mapping untuk mengubah teks tersebut kembali menjadi simbol (misal: "satu" -> 1, "tambah" -> +, "sama dengan" -> =).
+Langkah 3: Pengembangan TTS Kustom (Voice Cloning) 🗣️
+Untuk membuat model berbicara dengan suaramu, kita bisa melakukan fine-tuning pada model SpeechT5 (dari Microsoft) atau menggunakan framework seperti Coqui TTS (model VITS sangat disarankan untuk satu suara/ single speaker).
+1.	Preprocessing Format TTS: Model TTS biasanya membutuhkan format metadata spesifik (seperti format LJSpeech), yaitu file teks berisi nama_file|teks_transkripsi.
+2.	Training/Fine-Tuning:
+o	Jika menggunakan VITS, model akan belajar mencocokkan teks yang kamu ketik dengan spektrum suara (spectrogram) unik dari suaramu.
+o	Proses ini membutuhkan GPU yang lumayan kuat (bisa menggunakan Google Colab T4/V100).
+3.	Inference: Saat kamu memasukkan teks "1+1=2 123 sayang semuanya", sistem pertamatama harus mengubah teks itu menjadi "satu tambah satu sama dengan dua, satu dua tiga, sayang semuanya", baru kemudian diproses oleh model TTS agar menghasilkan suaramu.
+Langkah 4: Integrasi Menjadi Satu Aplikasi 🧩
+Langkah terakhir adalah menggabungkan semuanya dalam satu antarmuka (UI). Kamu bisa menggunakan Gradio atau Streamlit (keduanya berbasis Python) karena sangat ramah untuk AI.
+•	Alurnya (Pipeline):
+1.	Pengguna berbicara ke mikrofon aplikasi.
+2.	Audio ditangkap dan dikirim ke model Wav2Vec2 (STT) milikmu.
+3.	STT menghasilkan teks: "satu tambah satu sama dengan dua satu dua tiga sayang semuanya".
+4.	Teks tersebut bisa diubah menjadi format angka "1+1=2 123 sayang semuanya" untuk ditampilkan di layar pengguna.
+5.	Secara bersamaan, teks huruf utuhnya dikirim ke model TTS milikmu.
+6.	Aplikasi memutar audio sintesis yang terdengar persis seperti suaramu.
+Proses ini melibatkan cukup banyak komponen. Untuk memastikan kita memulai di jalan yang benar, apakah saat ini kamu sudah memiliki rekaman suaranya (dataset), atau kita perlu membahas cara memotong dan memformat audio agar siap dilatih?
+

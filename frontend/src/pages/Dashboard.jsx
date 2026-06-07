@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, Play, StopCircle, RefreshCw, Upload } from 'lucide-react';
+import { Mic, Play, StopCircle, RefreshCw, Upload, Download } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import axios from 'axios';
 import WaveformVisualizer from '../components/WaveformVisualizer';
@@ -8,14 +8,66 @@ import HeatmapVisualizer from '../components/HeatmapVisualizer';
 
 const API_URL = "http://localhost:8000/api";
 
+// Helper functions for browser-side uncompressed 16-bit PCM WAV encoding
+const encodeWAV = (samples, sampleRate) => {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  /* RIFF identifier */
+  writeString(view, 0, 'RIFF');
+  /* file length */
+  view.setUint32(4, 36 + samples.length * 2, true);
+  /* RIFF type */
+  writeString(view, 8, 'WAVE');
+  /* format chunk identifier */
+  writeString(view, 12, 'fmt ');
+  /* format chunk length */
+  view.setUint32(16, 16, true);
+  /* sample format (raw) */
+  view.setUint16(20, 1, true);
+  /* channel count */
+  view.setUint16(22, 1, true);
+  /* sample rate */
+  view.setUint32(24, sampleRate, true);
+  /* byte rate (sample rate * block align) */
+  view.setUint32(28, sampleRate * 2, true);
+  /* block align (channel count * bytes per sample) */
+  view.setUint16(32, 2, true);
+  /* bits per sample */
+  view.setUint16(34, 16, true);
+  /* data chunk identifier */
+  writeString(view, 36, 'data');
+  /* data chunk length */
+  view.setUint32(40, samples.length * 2, true);
+
+  floatTo16BitPCM(view, 44, samples);
+
+  return new Blob([view.buffer], { type: 'audio/wav' });
+};
+
+const floatTo16BitPCM = (output, offset, input) => {
+  for (let i = 0; i < input.length; i++, offset += 2) {
+    let s = Math.max(-1, Math.min(1, input[i]));
+    output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+};
+
+const writeString = (view, offset, string) => {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
+};
+
 const Dashboard = () => {
   const { pipelineData, setPipelineData, mode, setMode } = useAppContext();
   
   const [isRecording, setIsRecording] = useState(false);
   const [textInput, setTextInput] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState('f5-tts');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [liveVolume, setLiveVolume] = useState(0);
+  const [silenceThreshold, setSilenceThreshold] = useState(45);
   
   const mediaRecorder = useRef(null);
   const audioChunks = useRef([]);
@@ -23,6 +75,10 @@ const Dashboard = () => {
   const analyserRef = useRef(null);
   const animationFrameRef = useRef(null);
   const fileInputRef = useRef(null);
+  
+  const scriptProcessorRef = useRef(null);
+  const rawAudioSamples = useRef([]);
+  const recordingStream = useRef(null);
 
   const handleModeSwitch = (newMode) => {
     setMode(newMode);
@@ -33,7 +89,25 @@ const Dashboard = () => {
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-    await processV2T(file);
+    
+    setLoading(true);
+    setError(null);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const decodeContext = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer);
+      const rawSamples = audioBuffer.getChannelData(0);
+      
+      const wavBlob = encodeWAV(rawSamples, audioBuffer.sampleRate);
+      decodeContext.close();
+      
+      await processV2T(wavBlob);
+    } catch (err) {
+      console.error("Browser-side audio decoding failed:", err);
+      setError("Gagal membaca file audio. Format mungkin tidak didukung oleh browser.");
+      setLoading(false);
+    }
+    
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -42,6 +116,8 @@ const Dashboard = () => {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordingStream.current = stream;
+      
       mediaRecorder.current = new MediaRecorder(stream);
       audioChunks.current = [];
       
@@ -71,12 +147,31 @@ const Dashboard = () => {
       mediaRecorder.current.onstop = async () => {
         cancelAnimationFrame(animationFrameRef.current);
         setLiveVolume(0);
+        
         if (audioContextRef.current) {
           audioContextRef.current.close();
         }
+
+        // Create a raw Blob of the recorded browser audio (WebM or Ogg)
+        const rawBlob = new Blob(audioChunks.current);
         
-        const audioBlob = new Blob(audioChunks.current, { type: 'audio/wav' });
-        await processV2T(audioBlob);
+        try {
+          const arrayBuffer = await rawBlob.arrayBuffer();
+          // Decodes the browser-native audio format to raw PCM Float32 samples
+          const decodeContext = new (window.AudioContext || window.webkitAudioContext)();
+          const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer);
+          
+          const rawSamples = audioBuffer.getChannelData(0);
+          
+          // Encode raw PCM Float32 samples to standard 16-bit PCM WAV
+          const wavBlob = encodeWAV(rawSamples, audioBuffer.sampleRate);
+          
+          decodeContext.close();
+          await processV2T(wavBlob);
+        } catch (decodeErr) {
+          console.error("Browser-side audio transcoding to WAV failed:", decodeErr);
+          setError("Gagal mendecode audio peramban ke format WAV asli. Silakan coba lagi.");
+        }
       };
       
       mediaRecorder.current.start();
@@ -88,10 +183,16 @@ const Dashboard = () => {
   };
 
   const stopRecording = () => {
-    if (mediaRecorder.current) {
+    if (mediaRecorder.current && mediaRecorder.current.state !== 'inactive') {
       mediaRecorder.current.stop();
-      setIsRecording(false);
     }
+    
+    if (recordingStream.current) {
+      recordingStream.current.getTracks().forEach(track => track.stop());
+      recordingStream.current = null;
+    }
+    
+    setIsRecording(false);
   };
 
   const processV2T = async (audioBlob) => {
@@ -99,6 +200,7 @@ const Dashboard = () => {
     setError(null);
     const formData = new FormData();
     formData.append('file', audioBlob, 'recording.wav');
+    formData.append('top_db', silenceThreshold);
     
     try {
       const res = await axios.post(`${API_URL}/v2t`, formData);
@@ -116,7 +218,7 @@ const Dashboard = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.post(`${API_URL}/t2v`, { equation: textInput });
+      const res = await axios.post(`${API_URL}/t2v`, { equation: textInput, language: selectedLanguage });
       if (res.data.validation.valid) {
         setPipelineData({ ...res.data, mode: 't2v' });
       } else {
@@ -134,6 +236,15 @@ const Dashboard = () => {
   const playAudioBase64 = (base64) => {
     const snd = new Audio("data:audio/wav;base64," + base64);
     snd.play();
+  };
+
+  const downloadAudioBase64 = (base64) => {
+    const link = document.createElement('a');
+    link.href = "data:audio/wav;base64," + base64;
+    link.download = "hasil_tts.wav";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -231,6 +342,32 @@ const Dashboard = () => {
                 <p className="mt-4 text-sm text-gray-400">
                   {isRecording ? "Merekam... Klik untuk berhenti" : "Klik mic untuk merekam, atau klik icon upload"}
                 </p>
+
+                {/* Silence Sensitivity Slider */}
+                <div className="w-full mt-6 px-4 py-3 bg-gray-950 border border-gray-800 rounded-xl">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Sensitivitas Jeda (Threshold)</span>
+                    <span className="text-sm font-mono font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                      {silenceThreshold} dB
+                    </span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="20" 
+                    max="60" 
+                    value={silenceThreshold} 
+                    onChange={(e) => setSilenceThreshold(parseInt(e.target.value))}
+                    className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-gray-500 mt-1 font-sans">
+                    <span className="text-emerald-400 font-medium">20 dB (Paling Sensitif)</span>
+                    <span>45 dB (Default)</span>
+                    <span className="text-orange-400 font-medium">60 dB (Kurang Sensitif)</span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-2 italic leading-relaxed">
+                    💡 <b>Tips:</b> Jika rekaman Anda terpotong sebelum selesai atau sulit terurai (selalu menghasilkan 5 kata saja), turunkan nilai ini ke <b>25 - 35 dB</b> agar mikrofon lebih sensitif mendeteksi jeda kecil di lingkungan Anda.
+                  </p>
+                </div>
               </>
             ) : (
               <div className="w-full">
@@ -241,6 +378,16 @@ const Dashboard = () => {
                   placeholder="Misal: 2 + 3 * 4 - 5 / 6..."
                   className="w-full h-32 bg-gray-950 border border-gray-800 rounded-xl p-4 text-emerald-400 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                 />
+                
+                <div className="mt-4 p-4 bg-emerald-950/20 border border-emerald-500/30 rounded-xl flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Engine Kloning Suara</span>
+                    <span className="text-emerald-400 font-bold text-sm mt-0.5">🇮🇩 F5-TTS Offline (Aktif)</span>
+                  </div>
+                  <div className="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 animate-pulse">
+                    Indonesian Model V2
+                  </div>
+                </div>
                 <button 
                   onClick={handleT2VSubmit}
                   disabled={loading}
@@ -270,12 +417,19 @@ const Dashboard = () => {
                     </div>
                   )}
                   {mode === 't2v' && pipelineData.pipeline && (
-                    <div className="mt-4">
+                    <div className="mt-4 flex gap-2">
                       <button 
                         onClick={() => playAudioBase64(pipelineData.pipeline.audio_b64)}
                         className="bg-emerald-500/20 text-emerald-400 px-6 py-3 rounded-full flex items-center gap-2 hover:bg-emerald-500/30 transition-all border border-emerald-500/50"
                       >
                         <Play size={20} /> Putar Hasil Suara
+                      </button>
+                      <button 
+                        onClick={() => downloadAudioBase64(pipelineData.pipeline.audio_b64)}
+                        className="bg-blue-500/20 text-blue-400 px-6 py-3 rounded-full flex items-center gap-2 hover:bg-blue-500/30 transition-all border border-blue-500/50"
+                        title="Download Audio"
+                      >
+                        <Download size={20} /> Download
                       </button>
                     </div>
                   )}
@@ -641,12 +795,20 @@ const Dashboard = () => {
                       {/* Step 4: Final Audio */}
                       <div className="bg-gray-900 p-4 rounded-xl border-2 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] flex flex-col items-center justify-center gap-3">
                         <span className="text-white font-bold text-lg">4. Audio Output Final</span>
-                        <button 
-                          onClick={() => playAudioBase64(pipelineData.pipeline.audio_b64)}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-3 rounded-full flex items-center gap-3 transition-all font-sans font-bold shadow-lg"
-                        >
-                          <Play size={24} fill="currentColor" /> Dengarkan Hasil T2V
-                        </button>
+                        <div className="flex gap-4">
+                          <button 
+                            onClick={() => playAudioBase64(pipelineData.pipeline.audio_b64)}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-3 rounded-full flex items-center gap-3 transition-all font-sans font-bold shadow-lg"
+                          >
+                            <Play size={24} fill="currentColor" /> Dengarkan
+                          </button>
+                          <button 
+                            onClick={() => downloadAudioBase64(pipelineData.pipeline.audio_b64)}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-full flex items-center gap-3 transition-all font-sans font-bold shadow-lg"
+                          >
+                            <Download size={24} /> Download
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </PipelineCard>

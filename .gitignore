@@ -154,3 +154,24 @@ Keepfile
 *.sw?
 .DS_Store
 Thumbs.db
+
+# Large ML models & custom models
+f5_models/
+tts/
+backend/models/
+speech_templates/
+
+# Datasets and archives
+my_voice_dataset/
+*.zip
+*.tar.gz
+
+# Local audio recordings and outputs
+*.wav
+*.mp3
+*.m4a
+*.webm
+*.ogg
+backend/experiment_f5_out.wav
+backend/suara_saya.wav
+backend/suara_saya_trimmed_24k.wav

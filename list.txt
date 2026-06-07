@@ -1,0 +1,5 @@
+python -m uvicorn app:app --port 8000
+
+pip install -r requirements.txt
+
+npm run dev
